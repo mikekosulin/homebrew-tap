@@ -17,6 +17,8 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Latest release
@@ -28,6 +30,7 @@ jobs:
           bin/formula.sh "$tag" "$RUNNER_TEMP/SHA256SUMS" > Formula/kanareika.rb
           echo "TAG=$tag" >> "$GITHUB_ENV"
       - name: Commit
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -35,16 +38,20 @@ jobs:
           git diff --cached --quiet && { echo "already at $TAG"; exit 0; }
           git commit -qm "kanareika $TAG"
           git push -q
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
-  # the formula installs and its test passes, on both platforms
+  # the formula installs and its test passes, on both platforms: after a new formula, or when run by hand (not every
+  # six hours: a macOS runner can wait in the queue for a long time, and an unchanged formula needs no new check)
   check:
     needs: update
+    if: needs.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: Homebrew/actions/setup-homebrew@main
+      - uses: Homebrew/actions/setup-homebrew@ceec4e8419bb3c97ce96e9dda7738499ed5f869d # main 2026-11-13
       - run: |
           brew tap mikekosulin/tap
           brew install mikekosulin/tap/kanareika
